@@ -1,0 +1,30 @@
+# ivlog files
+*.out
+.dvt
+*.log
+
+# questa files
+*.mpf
+work/
+*.wlf
+*.cr.mti
+*.vcd
+
+# quartus files
+db/
+incremental_db/
+output_files/
+simulation/
+*.qpf
+*.qsf
+*.bak
+*.qws
+*.txt
+
+# document files
+*.pdf
+*.png
+
+# unwanted tb_ files
+tb_*.sv
+tb_*.v
