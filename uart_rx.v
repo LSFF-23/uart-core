@@ -13,6 +13,7 @@ localparam  IDLE = 3'b000,
             DATA = 3'b010,
             STOP = 3'b011,
             ERROR = 3'b100,
+            CLEANUP = 3'b101,
             DONE = 3'b111;
 
 reg [2:0] state, next_state;
@@ -23,14 +24,17 @@ always @(posedge clk, negedge rstn) begin
         state <= next_state;
 end
 
-reg rx_sync1, rx_sync2;
+reg rx_sync1, rx_sync2, rx_sync3;
+wire rx_falling = (rx_sync2 == 1'b0 && rx_sync3 == 1'b1);
 always @(posedge clk) begin
     if (!rstn) begin
         rx_sync1 <= 1'b1;
         rx_sync2 <= 1'b1;
+        rx_sync3 <= 1'b1;
     end else begin
         rx_sync1 <= rx_pin;
         rx_sync2 <= rx_sync1;
+        rx_sync3 <= rx_sync2;
     end
 end
 
@@ -43,28 +47,31 @@ always @* begin
     next_state = state;
     case (state)
         IDLE: begin
-            if (rx_sync1 == 1'b0 && rx_sync2 == 1'b1)
+            if (rx_falling)
                 next_state = START;
         end
         START: begin
-            if (baud_tick && middle_tick)
-                if (rx_sync2 == 1'b0)
-                    next_state = DATA;
-                else
+            if (baud_tick) begin
+                if (middle_tick && rx_sync2 != 1'b0)
                     next_state = IDLE;
+                if (end_tick)
+                    next_state = DATA;
+            end
         end
         DATA: begin
             if (baud_tick && end_tick && end_bit)
                 next_state = STOP;
         end
         STOP: begin
-            if (baud_tick && end_tick)
-                if (rx_sync2 == 1'b1)
+            if (baud_tick) begin
+                if (middle_tick && rx_sync2 != 1'b1)
+                    next_state = CLEANUP;
+                if (end_tick)
                     next_state = DONE;
-                else
-                    next_state = ERROR;
+            end
         end
-        ERROR, DONE: next_state = IDLE;
+        CLEANUP: if (baud_tick && end_tick) next_state = ERROR;
+        DONE, ERROR: next_state = IDLE;
         default: next_state = IDLE;
     endcase
 end
@@ -78,19 +85,14 @@ always @(posedge clk, negedge rstn) begin
     end else begin
         case (state)
             IDLE: begin
-                if (rx_sync1 == 1'b0 && rx_sync2 == 1'b1) begin
+                if (rx_falling) begin
                     tick_counter <= 4'b0;
                     bit_counter <= 3'b0;
-                    data_reg <= 8'b0;
                 end
             end
-            START: begin
-                if (baud_tick) begin
-                    if (middle_tick)
-                        tick_counter <= 4'b0;
-                    else
-                        tick_counter <= tick_counter + 1'b1;
-                end
+            START, STOP, CLEANUP: begin
+                if (baud_tick)
+                    tick_counter <= tick_counter + 1'b1;
             end
             DATA: begin
                 if (baud_tick) begin
@@ -100,10 +102,6 @@ always @(posedge clk, negedge rstn) begin
                     if (end_tick)
                         bit_counter <= bit_counter + 1'b1;
                 end
-            end
-            STOP: begin
-                if (baud_tick)
-                    tick_counter <= tick_counter + 1'b1;
             end
         endcase
     end
