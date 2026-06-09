@@ -109,7 +109,7 @@ always_ff @(posedge clk, negedge rstn) begin
 end
 
 assign rx_data = data_reg;
-assign rx_done = (state == DONE);
+assign rx_done = (state == DONE || state == ERROR);
 assign frame_error = (state == ERROR);
 
 endmodule
