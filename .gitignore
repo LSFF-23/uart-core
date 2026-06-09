@@ -30,5 +30,3 @@ simulation/
 # unwanted tb_ files
 tb_*.sv
 tb_*.v
-*_tb.sv
-*_tb_.v
