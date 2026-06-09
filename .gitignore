@@ -9,6 +9,7 @@ work/
 *.wlf
 *.cr.mti
 *.vcd
+transcript
 
 # quartus files
 db/
