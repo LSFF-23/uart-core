@@ -5,7 +5,8 @@ timeprecision 1ns;
 parameter int MAIN_CLOCK = 50_000_000; // in Hz
 parameter int PERIOD = 1_000_000_000 / MAIN_CLOCK; // in ns
 parameter int L_BAUD = 115200;
-parameter int TIMEOUT = 800 * L_BAUD; // 1 full byte sent = 160 bauds
+parameter int BAUD = MAIN_CLOCK / (L_BAUD * 16);
+parameter int TIMEOUT = 800 * BAUD; // 1 full byte sent = 160 bauds
 
 logic clk;
 logic rstn;
@@ -95,6 +96,7 @@ task send_byte (
 
         // STATE = STOP
         -> stop_cycle;
+        if (log) $display("[%10t] [INFO] STOP state started", $time);
         ticks_counter = 0;
         while (ticks_counter < 16) begin
             @(posedge baud_tick);
@@ -121,7 +123,6 @@ initial begin
 
     $display("[%10t] Single run: Sending 8'hAA.", $time);
     send_byte(8'hAA, 1'b1, test_passed);
-    @(negedge baud_tick);
 
     $display("[%10t] Seizing start bit to cause error.", $time);
     fork
