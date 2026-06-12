@@ -165,7 +165,7 @@ logic done_sync1 = 0;
 logic done_sync2 = 0;
 always @(posedge clk) begin
     done_sync1 <= rx_done;
-    done_sync2 <= done_sync2;
+    done_sync2 <= done_sync1;
     if (done_sync1 == done_sync2) begin
         timeout_count <= timeout_count + 1;
         if (timeout_count > TIMEOUT) begin
