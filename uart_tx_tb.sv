@@ -2,11 +2,9 @@ module uart_tx_tb;
 timeunit 1ns;
 timeprecision 1ns;
 
-parameter int MAIN_CLOCK = 50_000_000; // in Hz
-parameter int PERIOD = 1_000_000_000 / MAIN_CLOCK; // in ns
-parameter int L_BAUD = 115200;
-parameter int BAUD = MAIN_CLOCK / (L_BAUD * 16);
-parameter int TIMEOUT = 800 * BAUD; // 1 full byte sent = 160 bauds
+import uart_pkg::*;
+
+localparam PARITY = 0;
 
 logic clk;
 logic rstn;
@@ -16,32 +14,17 @@ logic [7:0] tx_data;
 logic tx_value;
 logic tx_busy;
 
-logic test_passed;
 logic seize_tx, seize_value;
 wire tx_pin = (seize_tx) ? seize_value : tx_value;
 
-event start_cycle, stop_cycle;
+logic test_passed;
 int pass_count;
 
-baud_gen #(
-    .BAUD_RATE(L_BAUD),
-    .CLK_FREQUENCY(MAIN_CLOCK)
-) u_baud_gen (.*);
-
-uart_tx dut (.*, .tx_pin(tx_value));
+baud_gen u_baud_gen (.*);
+uart_tx#(.PARITY(PARITY)) dut (.*, .tx_pin(tx_value));
 
 initial clk = 0;
 always #(PERIOD/2) clk = !clk;
-
-task reset();
-    $display("[%6t] Applying reset...", $time);
-    rstn = 1;
-    #1;
-    rstn = 0;
-    #1;
-    rstn = 1;
-    $display("[%6t] Reset applied.", $time);
-endtask
 
 task send_byte (
     input logic [7:0] data, 
@@ -50,114 +33,100 @@ task send_byte (
 );
 
     logic [7:0] buffer;
-    int ticks_counter;
+    logic parity;
     begin
+        @(posedge clk);
         test_passed = 0;
+        tx_start = 1;
+        tx_data = data;
+        buffer = '0;
         @(posedge clk);
-        tx_start <= 1'b1;
-        tx_data <= data;
-        buffer <= '0;
-        @(posedge clk);
-        tx_start <= 1'b0;
-        if (log) $display("[%6t] [INFO] Starting communication.", $time);
+        tx_start = 0;
+        if (log) $display("[%6t] [INFO] Byte to be sent: 8'h%2X", $time, data);
         @(posedge clk);
 
         // STATE = START
-        -> start_cycle;
-        if (log) $display("[%6t] [INFO] START state started", $time);
-        ticks_counter = 0;
-        while (ticks_counter < 16) begin
-            @(posedge baud_tick);
-            if (ticks_counter == 7 && tx_pin == 1'b1) begin
-                if (log) $display("[%6t] [FAIL] tx_pin still high when sampled at START state.", $time);
-                return;
-            end
-            ticks_counter += 1;
-            @(negedge baud_tick);
+        repeat (8) @(posedge baud_tick);  
+        if (log) $display("[%6t] [%s] START: tx_pin = %b", $time, (tx_pin != 0) ? "FAIL" : "PASS", tx_pin);
+        if (tx_pin != 0) begin
+            wait(dut.state == TX_IDLE);
+            return;
         end
-        @(posedge clk);
-        if (log) $display("[%6t] [PASS] tx_pin behaved correctly during START state.", $time);
+        repeat(8) @(posedge baud_tick);
 
         // STATE = DATA
-        if (log) $display("[%6t] [INFO] DATA state started", $time);
         for (int i = 0; i < 8; i++) begin
-            ticks_counter = 0;
-            while (ticks_counter < 16) begin
-                @(posedge baud_tick);
-                if (ticks_counter == 7) begin
-                    if (log) $display("[%6t] [DATA] Sampled bit %1d: %b | Expected: %b", $time, i+1, tx_pin, data[i]);
-                    buffer[i] = tx_pin;
-                end
-                ticks_counter += 1;
-                @(negedge baud_tick);
+            repeat (8) @(posedge baud_tick);
+            if (log) $display("[%6t] [%s] DATA: Sampled bit %1d: %b | Expected: %b", $time, tx_pin == data[i] ? "PASS" : "FAIL", i+1, tx_pin, data[i]);
+            buffer[i] = tx_pin;
+            repeat (8) @(posedge baud_tick);
+        end
+
+        // STATE = PARITY
+        if (PARITY inside {[0:1]}) begin
+            parity = ^buffer ^ PARITY[0];
+            repeat (8) @(posedge baud_tick);
+            if (log) $display("[%6t] [%s] PARITY: tx_pin = %b | parity = %b", $time, (tx_pin == parity) ? "PASS" : "FAIL", tx_pin, parity);
+            if (tx_pin != parity) begin
+                wait(dut.state == TX_IDLE);
+                return;
             end
-            @(posedge clk);
+            repeat(8) @(posedge baud_tick);
         end
 
         // STATE = STOP
-        -> stop_cycle;
-        if (log) $display("[%6t] [INFO] STOP state started", $time);
-        ticks_counter = 0;
-        while (ticks_counter < 16) begin
-            @(posedge baud_tick);
-            if (ticks_counter == 7 && tx_pin == 1'b0) begin
-                if (log) $display("[%6t] [FAIL] tx_pin is low when sampled at STOP state.", $time);
-                return;
-            end
-            ticks_counter += 1;
-            @(negedge baud_tick);
+        repeat (8) @(posedge baud_tick);  
+        if (log) $display("[%6t] [%s] STOP: tx_pin = %b", $time, (tx_pin == 0) ? "FAIL" : "PASS", tx_pin);
+        if (tx_pin == 0) begin
+            wait(dut.state == TX_IDLE);
+            return;
         end
-        @(posedge clk);
+        repeat(8) @(posedge baud_tick);
+
         test_passed = (buffer == data);
         if (log) begin
-            $display("[%6t] [PASS] tx_pin behaved correctly during STOP state.", $time);
             $display("[%6t] [%s] Received: %2h | Expected: %2h", $time, (test_passed) ? "PASS" : "FAIL", buffer, data);
-            $display("[%6t] [INFO] Moving to IDLE.", $time);
+            $display("[%6t] [INFO] Moving to IDLE", $time);
         end
+        wait(dut.state == TX_IDLE);
     end
 endtask
 
 initial begin
     $display("------------------------------------------------------------");
-    seize_tx = 1'b0; seize_value = 1'b0;
-    reset();
+    seize_tx = 0; seize_value = 0;
+    reset(.rstn(rstn));
+    $display("------------------------------------------------------------");
 
-    $display("[%6t] Single run: Sending 8'hAA.", $time);
-    send_byte(8'hAA, 1'b1, test_passed);
+    send_byte(8'hAA, 1, test_passed);
     $display("------------------------------------------------------------");
 
     $display("[%6t] Seizing start bit to cause error.", $time);
     fork
-        send_byte(8'hFF, 1'b1, test_passed);
+        send_byte(8'hFF, 1, test_passed);
         begin
-            @(start_cycle);
-            seize_tx = 1'b1;
-            seize_value = 1'b1;
+            wait(dut.state == TX_START);
+            seize_tx = 1;
+            seize_value = 1;
             wait(!tx_busy);
-            seize_tx = 1'b0;
+            seize_tx = 0;
         end
     join
-    if (test_passed)
-        $display("[%6t] [FAIL] Unexpected pass.", $time);
-    else
-        $display("[%6t] [PASS] Failed successfully.", $time);
+    $display("[%6t] [%s] Start bit error executed.", $time, (test_passed) ? "FAIL" : "PASS");
     $display("------------------------------------------------------------");
 
     $display("[%6t] Seizing stop bit to cause error.", $time);
     fork
-        send_byte(8'hFF, 1'b1, test_passed);
+        send_byte(8'hFF, 1, test_passed);
         begin
-            @(stop_cycle);
-            seize_tx = 1'b1;
-            seize_value = 1'b0;
+            wait(dut.state == TX_STOP);
+            seize_tx = 1;
+            seize_value = 0;
             wait(!tx_busy);
-            seize_tx = 1'b0;
+            seize_tx = 0;
         end
     join
-    if (test_passed)
-        $display("[%6t] [FAIL] Unexpected pass.", $time);
-    else
-        $display("[%6t] [PASS] Failed successfully.", $time);
+    $display("[%6t] [%s] Stop bit error executed.", $time, (test_passed) ? "FAIL" : "PASS");
     $display("------------------------------------------------------------");
 
     $display("[%6t] Testing from 8'00 to 8'FF", $time);
@@ -169,7 +138,6 @@ initial begin
             pass_count -= 1;
         end
     end
-
     $display("[%6t] [INFO] %3d tests passed.", $time, pass_count);
     $display("------------------------------------------------------------");
 
