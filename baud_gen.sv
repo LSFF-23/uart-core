@@ -1,5 +1,5 @@
 module baud_gen #(
-    parameter BAUD_RATE = 9600,
+    parameter BAUD_RATE = 115200,
     parameter CLK_FREQUENCY = 50_000_000
 ) 
 (
