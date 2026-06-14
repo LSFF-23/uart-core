@@ -7,12 +7,21 @@ localparam int BAUD = MAIN_CLOCK / (L_BAUD * 16);
 localparam int TIMEOUT = 3 * 176 * BAUD; // 1 byte = 176 bauds
 
 typedef enum logic [2:0] {
-    TX_IDLE = 3'b000,
-    TX_START = 3'b001,
-    TX_DATA = 3'b010,
-    TX_STOP = 3'b011,
-    TX_PARITY = 3'b100
+    TX_IDLE,
+    TX_START,
+    TX_DATA,
+    TX_PARITY,
+    TX_STOP
 } tx_states;
+
+typedef enum logic [2:0] {
+    RX_IDLE,
+    RX_START,
+    RX_DATA,
+    RX_PARITY,
+    RX_STOP,
+    RX_DONE
+} rx_states;
 
 task automatic reset (ref logic rstn);
     $display("[%6t] Applying reset...", $time);
