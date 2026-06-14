@@ -1,26 +1,22 @@
-module uart_rx (
+module uart_rx # (
+    parameter PARITY = 2 // 0 = EVEN, 1 = ODD, 2 = NONE
+) (
     input logic clk,
     input logic rstn,
     input logic baud_tick,
     input logic rx_pin,
     output logic [7:0] rx_data,
     output logic rx_done,
-    output logic frame_error
+    output logic frame_error,
+    output logic parity_error
 );
 
-enum logic [2:0] {
-    IDLE = 3'b000,
-    START = 3'b001,
-    DATA = 3'b010,
-    STOP = 3'b011,
-    ERROR = 3'b100,
-    CLEANUP = 3'b101,
-    DONE = 3'b111
-} state, next_state;
+import uart_pkg::*;
 
+rx_states state, next_state;
 always_ff @(posedge clk, negedge rstn) begin
     if (!rstn)
-        state <= IDLE;
+        state <= RX_IDLE;
     else
         state <= next_state;
 end
@@ -47,61 +43,63 @@ wire end_bit = bit_counter == 3'h7;
 always_comb begin
     next_state = state;
     case (state)
-        IDLE: begin
-            if (rx_falling)
-                next_state = START;
-        end
-        START: begin
-            if (baud_tick) begin
-                if (middle_tick && rx_sync2 != 1'b0)
-                    next_state = IDLE;
-                if (end_tick)
-                    next_state = DATA;
-            end
-        end
-        DATA: begin
-            if (baud_tick && end_tick && end_bit)
-                next_state = STOP;
-        end
-        STOP: begin
-            if (baud_tick) begin
-                if (middle_tick && rx_sync2 != 1'b1)
-                    next_state = CLEANUP;
-                if (end_tick)
-                    next_state = DONE;
-            end
-        end
-        CLEANUP: if (baud_tick && end_tick) next_state = ERROR;
-        DONE, ERROR: next_state = IDLE;
-        default: next_state = IDLE;
+        RX_IDLE:  if (rx_falling) next_state = RX_START;
+        RX_START: if (baud_tick && middle_tick && rx_sync2 != 1'b0) next_state = RX_IDLE;
+                  else if (baud_tick && end_tick) next_state = RX_DATA;
+        RX_DATA: if (baud_tick && end_tick && end_bit) next_state = (PARITY inside {[0:1]}) ? RX_PARITY : RX_STOP;
+        RX_PARITY: if (baud_tick && end_tick) next_state = RX_STOP;
+        RX_STOP: if (baud_tick && end_tick) next_state = RX_DONE;
+        RX_DONE: next_state = RX_IDLE;
+        default: next_state = RX_IDLE;
     endcase
 end
 
 logic [7:0] data_reg;
+logic parity_bit;
+generate
+    if (PARITY inside {[0:1]}) begin: SOME_PARITY
+        assign parity_bit = (^data_reg ^ PARITY[0]);
+    end else begin: NO_PARITY
+        assign parity_bit = 0;
+    end
+endgenerate
+
+logic pe_flag, fe_flag;
 always_ff @(posedge clk, negedge rstn) begin
     if (!rstn) begin
-        tick_counter <= 4'b0;
-        bit_counter <= 3'b0;
-        data_reg <= 8'b0;
+        tick_counter <= '0;
+        bit_counter <= '0;
+        data_reg <= '0;
+        pe_flag <= 0;
+        fe_flag <= 0;
     end else begin
         case (state)
-            IDLE: begin
+            RX_IDLE: begin
                 if (rx_falling) begin
-                    tick_counter <= 4'b0;
-                    bit_counter <= 3'b0;
+                    tick_counter <= '0;
+                    bit_counter <= '0;
+                    pe_flag <= 0;
+                    fe_flag <= 0;
                 end
             end
-            START, STOP, CLEANUP: begin
-                if (baud_tick)
-                    tick_counter <= tick_counter + 1'b1;
-            end
-            DATA: begin
+            RX_START: if (baud_tick) tick_counter <= tick_counter + 1'b1;
+            RX_DATA: begin
                 if (baud_tick) begin
                     tick_counter <= tick_counter + 1'b1;
-                    if (middle_tick)
-                        data_reg <= {rx_sync2, data_reg[7:1]};
-                    if (end_tick)
-                        bit_counter <= bit_counter + 1'b1;
+                    if (middle_tick) data_reg <= {rx_sync2, data_reg[7:1]};
+                    else if (end_tick) bit_counter <= bit_counter + 1'b1;
+                end
+            end
+            RX_PARITY: begin
+                if (baud_tick) begin
+                    tick_counter <= tick_counter + 1'b1;
+                    if (middle_tick) pe_flag <= rx_sync2 != parity_bit;
+                end
+            end
+            RX_STOP: begin
+                if (baud_tick) begin
+                    tick_counter <= tick_counter + 1'b1;
+                    if (middle_tick) fe_flag <= rx_sync2 != 1;
                 end
             end
         endcase
@@ -109,7 +107,8 @@ always_ff @(posedge clk, negedge rstn) begin
 end
 
 assign rx_data = data_reg;
-assign rx_done = (state == DONE || state == ERROR);
-assign frame_error = (state == ERROR);
+assign rx_done = state == RX_DONE;
+assign frame_error = state == RX_DONE && fe_flag;
+assign parity_error = state == RX_DONE && pe_flag;
 
 endmodule
