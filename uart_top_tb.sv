@@ -1,22 +1,10 @@
 module uart_top_tb;
-parameter int MAIN_CLOCK = 50_000_000; // in Hz
-parameter int PERIOD = 1_000_000_000 / MAIN_CLOCK; // in ns
-parameter int L_BAUD = 115200;
-parameter int BAUD = MAIN_CLOCK / (L_BAUD * 16);
-parameter int TIMEOUT = 800 * BAUD; // 1 full byte sent = 160 bauds
+timeunit 1ns;
+timeprecision 1ns;
 
-parameter TX_IDLE = 2'b00;
-parameter TX_START = 2'b01;
-parameter TX_DATA = 2'b10;
-parameter TX_STOP = 2'b11;
+import uart_pkg::*;
 
-parameter RX_IDLE = 3'b000;
-parameter RX_START = 3'b001;
-parameter RX_DATA = 3'b010;
-parameter RX_STOP = 3'b011;
-parameter RX_ERROR = 3'b100;
-parameter RX_CLEANUP = 3'b101;
-parameter RX_DONE = 3'b111;
+localparam PARITY = 2;
 
 logic clk;
 logic rstn;
@@ -28,36 +16,21 @@ logic rx_pin;
 logic [7:0] rx_data;
 logic rx_done;
 logic frame_error;
+logic parity_error;
 
 logic baud_tick;
+
 logic test_passed;
 int pass_count;
 
 logic seize_tx, seize_value;
 assign rx_pin = (seize_tx) ? seize_value : tx_pin;
 
-baud_gen #(
-    .BAUD_RATE(L_BAUD),
-    .CLK_FREQUENCY(MAIN_CLOCK)
-) u_baud_gen (.*);
-
-uart_top #(
-    .BAUD_RATE(L_BAUD),
-    .CLK_FREQUENCY(MAIN_CLOCK)
-) dut (.*);
+baud_gen u_baud_gen (.*);
+uart_top dut (.*);
 
 initial clk = 0;
 always #(PERIOD/2) clk = !clk;
-
-task reset();
-    $display("[%6t] Applying reset...", $time);
-    rstn = 1;
-    #1;
-    rstn = 0;
-    $display("[%6t] Reset applied.", $time);
-    #1;
-    rstn = 1;
-endtask
 
 task loopback_byte (
     input [7:0] data,
@@ -85,7 +58,7 @@ endtask
 initial begin
     $display("------------------------------------------------------------");
     tx_start = 0; tx_data = '0; seize_tx = 0; seize_value = 0;
-    reset();
+    reset(.rstn(rstn));
 
     loopback_byte(8'hAA, 1, test_passed);
     $display("------------------------------------------------------------");
