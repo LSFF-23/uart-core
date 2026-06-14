@@ -103,7 +103,7 @@ initial begin
 
     $display("[%6t] Seizing start bit to cause error.", $time);
     fork
-        send_byte(8'hFF, 1, test_passed);
+        send_byte(8'hBB, 1, test_passed);
         begin
             wait(dut.state == TX_START);
             seize_tx = 1;
@@ -115,9 +115,25 @@ initial begin
     $display("[%6t] [%s] Start bit error executed.", $time, (test_passed) ? "FAIL" : "PASS");
     $display("------------------------------------------------------------");
 
+    if (PARITY inside {[0:1]}) begin
+        $display("[%6t] Seizing parity bit to cause error.", $time);
+        fork
+            send_byte(8'hCC, 1, test_passed);
+            begin
+                wait(dut.state == TX_PARITY);
+                seize_tx = 1;
+                seize_value = !(^8'hCC ^ PARITY[0]);
+                wait(!tx_busy);
+                seize_tx = 0;
+            end
+        join
+        $display("[%6t] [%s] Parity bit error executed.", $time, (test_passed) ? "FAIL" : "PASS");
+        $display("------------------------------------------------------------");
+    end
+
     $display("[%6t] Seizing stop bit to cause error.", $time);
     fork
-        send_byte(8'hFF, 1, test_passed);
+        send_byte(8'hDD, 1, test_passed);
         begin
             wait(dut.state == TX_STOP);
             seize_tx = 1;
