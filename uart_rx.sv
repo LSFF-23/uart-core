@@ -46,7 +46,7 @@ always_comb begin
         RX_IDLE:  if (rx_falling) next_state = RX_START;
         RX_START: if (baud_tick && middle_tick && rx_sync2 != 1'b0) next_state = RX_IDLE;
                   else if (baud_tick && end_tick) next_state = RX_DATA;
-        RX_DATA: if (baud_tick && end_tick && end_bit) next_state = (PARITY inside {[0:1]}) ? RX_PARITY : RX_STOP;
+        RX_DATA: if (baud_tick && end_tick && end_bit) next_state = (PARITY == 0 || PARITY == 1) ? RX_PARITY : RX_STOP;
         RX_PARITY: if (baud_tick && end_tick) next_state = RX_STOP;
         RX_STOP: if (baud_tick && end_tick) next_state = RX_DONE;
         RX_DONE: next_state = RX_IDLE;
@@ -57,7 +57,7 @@ end
 logic [7:0] data_reg;
 logic parity_bit;
 generate
-    if (PARITY inside {[0:1]}) begin: SOME_PARITY
+    if (PARITY == 0 || PARITY == 1) begin: SOME_PARITY
         assign parity_bit = (^data_reg ^ PARITY[0]);
     end else begin: NO_PARITY
         assign parity_bit = 0;

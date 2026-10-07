@@ -30,7 +30,7 @@ always_comb begin
     case (state)
         TX_IDLE: if (tx_start) next_state = TX_START;
         TX_START: if (baud_tick && end_tick) next_state = TX_DATA;
-        TX_DATA: if (baud_tick && end_tick && end_bit) next_state = (PARITY inside {[0:1]}) ? TX_PARITY : TX_STOP;
+        TX_DATA: if (baud_tick && end_tick && end_bit) next_state = (PARITY == 0 || PARITY == 1) ? TX_PARITY : TX_STOP;
         TX_PARITY: if (baud_tick && end_tick) next_state = TX_STOP;
         TX_STOP: if (baud_tick && end_tick) next_state = TX_IDLE;
         default: next_state = TX_IDLE;
@@ -40,7 +40,7 @@ end
 logic [7:0] data_reg;
 logic parity_bit;
 generate
-    if (PARITY inside {[0:1]}) begin: SOME_PARITY
+    if (PARITY == 0 || PARITY == 1) begin: SOME_PARITY
         assign parity_bit = ^data_reg ^ PARITY[0];
     end else begin: NO_PARITY
         assign parity_bit = 0;
